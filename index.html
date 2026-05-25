@@ -1,0 +1,590 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>发票重命名工具</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.3.136/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script>
+pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.3.136/pdf.worker.min.js';
+</script>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: #0f172a;
+    color: #e2e8f0;
+    margin: 0;
+    padding: 40px 20px;
+    display: flex;
+    justify-content: center;
+  }
+  .container {
+    width: 100%;
+    max-width: 900px;
+  }
+  h1 { text-align: center; margin-bottom: 8px; font-size: 28px; }
+  .subtitle { text-align: center; color: #94a3b8; margin-bottom: 32px; font-size: 14px; }
+
+  .card {
+    background: #1e293b;
+    border-radius: 16px;
+    padding: 24px;
+    margin-bottom: 20px;
+  }
+
+  .dropzone {
+    border: 2px dashed #334155;
+    border-radius: 12px;
+    padding: 48px 24px;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.2s;
+    background: #0f172a;
+  }
+  .dropzone:hover, .dropzone.dragover {
+    border-color: #38bdf8;
+    background: #0b1221;
+  }
+  .dropzone input { display: none; }
+  .dropzone .icon { font-size: 40px; margin-bottom: 12px; }
+  .dropzone .hint { color: #94a3b8; font-size: 13px; }
+
+  .file-list {
+    margin-top: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .file-chip {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    background: #0f172a;
+    border-radius: 10px;
+    padding: 12px 16px;
+  }
+  .file-chip .name { flex: 1; font-weight: 500; font-size: 14px; }
+  .file-chip .size { color: #94a3b8; font-size: 13px; }
+  .file-chip .remove {
+    background: none; border: none; color: #ef4444; cursor: pointer; font-size: 18px;
+  }
+
+  .btn {
+    width: 100%;
+    padding: 14px;
+    margin-top: 20px;
+    border: none;
+    border-radius: 10px;
+    background: #38bdf8;
+    color: #0f172a;
+    font-size: 16px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: opacity 0.2s;
+  }
+  .btn:hover { opacity: 0.9; }
+  .btn:disabled {
+    background: #334155;
+    color: #64748b;
+    cursor: not-allowed;
+  }
+  .btn-secondary {
+    background: transparent;
+    border: 1px solid #38bdf8;
+    color: #38bdf8;
+  }
+
+  .progress {
+    margin-top: 16px;
+    height: 6px;
+    background: #334155;
+    border-radius: 3px;
+    overflow: hidden;
+    display: none;
+  }
+  .progress-bar {
+    height: 100%;
+    background: #38bdf8;
+    width: 0%;
+    transition: width 0.3s;
+  }
+
+  .error {
+    margin-top: 16px;
+    background: #450a0a;
+    color: #fca5a5;
+    padding: 14px 18px;
+    border-radius: 10px;
+    display: none;
+    font-size: 14px;
+  }
+
+  .meta-table-wrap {
+    margin-top: 20px;
+    overflow-x: auto;
+    display: none;
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+    background: #0f172a;
+    border-radius: 10px;
+    overflow: hidden;
+  }
+  th, td {
+    padding: 10px 12px;
+    text-align: left;
+    border-bottom: 1px solid #1e293b;
+  }
+  th {
+    background: #1e293b;
+    color: #94a3b8;
+    font-weight: 500;
+  }
+  td { color: #e2e8f0; }
+  tr:hover td { background: #1e293b; }
+  .field-empty { color: #64748b; font-style: italic; }
+
+  .format-section {
+    margin-top: 20px;
+    display: none;
+  }
+  .format-row {
+    display: flex;
+    gap: 12px;
+    align-items: flex-end;
+    flex-wrap: wrap;
+  }
+  .format-row > div { flex: 1; min-width: 200px; }
+  label { display: block; font-size: 13px; color: #94a3b8; margin-bottom: 6px; }
+  select, input[type="text"] {
+    width: 100%;
+    background: #0f172a;
+    border: 1px solid #334155;
+    color: #e2e8f0;
+    border-radius: 8px;
+    padding: 10px 12px;
+    font-size: 14px;
+  }
+  .preview-box {
+    margin-top: 16px;
+    background: #0f172a;
+    border-radius: 10px;
+    padding: 14px 18px;
+    font-size: 13px;
+  }
+  .preview-box b { color: #38bdf8; }
+  .preview-item {
+    display: flex;
+    gap: 12px;
+    padding: 6px 0;
+    border-bottom: 1px dashed #334155;
+  }
+  .preview-item:last-child { border-bottom: none; }
+  .preview-item .old { color: #94a3b8; flex: 1; }
+  .preview-item .arrow { color: #64748b; }
+  .preview-item .new { color: #e2e8f0; font-weight: 500; flex: 1; }
+
+  .download-section {
+    margin-top: 20px;
+    display: none;
+    text-align: center;
+  }
+
+  .log { margin-top: 12px; font-size: 12px; color: #64748b; }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>发票重命名工具</h1>
+  <div class="subtitle">上传退税采购发票 PDF，自动提取元数据并批量重命名（纯前端，文件不上传服务器）</div>
+
+  <div class="card">
+    <div class="dropzone" id="dropzone">
+      <input type="file" id="fileInput" accept="application/pdf" multiple>
+      <div class="icon">📄</div>
+      <div>点击选择文件或拖拽到此处</div>
+      <div class="hint">支持多张 PDF 发票同时上传，所有处理在浏览器本地完成</div>
+    </div>
+    <div class="file-list" id="fileList"></div>
+
+    <button class="btn" id="extractBtn" disabled>提取元数据</button>
+
+    <div class="progress" id="progress"><div class="progress-bar" id="progressBar"></div></div>
+    <div class="error" id="error"></div>
+    <div class="log" id="log"></div>
+  </div>
+
+  <div class="card meta-table-wrap" id="tableCard">
+    <h3 style="margin-top:0;margin-bottom:12px;font-size:16px;">提取结果</h3>
+    <div style="overflow-x:auto;">
+      <table id="metaTable">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>原文件名</th>
+            <th>合同编号</th>
+            <th>购方名称</th>
+            <th>销方名称</th>
+            <th>发票号码</th>
+            <th>开票日期</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="card format-section" id="formatCard">
+    <h3 style="margin-top:0;margin-bottom:12px;font-size:16px;">命名格式</h3>
+    <div class="format-row">
+      <div>
+        <label>预设格式</label>
+        <select id="presetSelect">
+          <option value="custom">-- 自定义 --</option>
+          <option value="{合同编号}">合同编号</option>
+          <option value="{合同编号}_{购方名称}">合同编号_购方名称</option>
+          <option value="{合同编号}_{销方名称}">合同编号_销方名称</option>
+          <option value="{发票号码}">发票号码</option>
+          <option value="{购方名称}">购方名称</option>
+          <option value="{销方名称}">销方名称</option>
+          <option value="{开票日期}">开票日期</option>
+        </select>
+      </div>
+      <div>
+        <label>自定义模板（可用占位符：{合同编号} {购方名称} {销方名称} {发票号码} {开票日期}）</label>
+        <input type="text" id="templateInput" value="{合同编号}" placeholder="例如：{合同编号}_{购方名称}">
+      </div>
+    </div>
+
+    <div class="preview-box" id="previewBox">
+      <div style="color:#94a3b8;margin-bottom:8px;">文件名预览</div>
+      <div id="previewList"></div>
+    </div>
+
+    <button class="btn" id="downloadBtn">下载重命名后的文件</button>
+  </div>
+
+  <div class="card download-section" id="downloadCard">
+    <div style="font-size:32px;margin-bottom:12px;">✅</div>
+    <div style="font-size:16px;font-weight:600;margin-bottom:8px;">文件已准备好</div>
+    <div style="color:#94a3b8;font-size:14px;margin-bottom:16px;" id="downloadHint"></div>
+    <a id="downloadLink" class="btn btn-secondary" style="display:inline-block;width:auto;padding:12px 32px;text-decoration:none;" href="#">点击下载</a>
+  </div>
+</div>
+
+<script>
+// ------------------------------------------------------------------
+// State
+// ------------------------------------------------------------------
+let uploadedFiles = [];
+let extractedData = [];
+
+// ------------------------------------------------------------------
+// DOM refs
+// ------------------------------------------------------------------
+const dropzone = document.getElementById('dropzone');
+const fileInput = document.getElementById('fileInput');
+const fileList = document.getElementById('fileList');
+const extractBtn = document.getElementById('extractBtn');
+const progress = document.getElementById('progress');
+const progressBar = document.getElementById('progressBar');
+const errorDiv = document.getElementById('error');
+const logDiv = document.getElementById('log');
+const tableCard = document.getElementById('tableCard');
+const metaTable = document.getElementById('metaTable').querySelector('tbody');
+const formatCard = document.getElementById('formatCard');
+const presetSelect = document.getElementById('presetSelect');
+const templateInput = document.getElementById('templateInput');
+const previewList = document.getElementById('previewList');
+const downloadBtn = document.getElementById('downloadBtn');
+const downloadCard = document.getElementById('downloadCard');
+const downloadLink = document.getElementById('downloadLink');
+const downloadHint = document.getElementById('downloadHint');
+
+// ------------------------------------------------------------------
+// Helpers
+// ------------------------------------------------------------------
+function fmtSize(bytes) {
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1024*1024) return (bytes/1024).toFixed(1) + ' KB';
+  return (bytes/1024/1024).toFixed(1) + ' MB';
+}
+
+function showError(msg) {
+  errorDiv.textContent = msg;
+  errorDiv.style.display = 'block';
+}
+function hideError() { errorDiv.style.display = 'none'; }
+function log(msg) { logDiv.textContent = msg; }
+
+function setProgress(pct) {
+  progress.style.display = 'block';
+  progressBar.style.width = pct + '%';
+}
+
+function renderFileList() {
+  fileList.innerHTML = '';
+  uploadedFiles.forEach((file, idx) => {
+    const chip = document.createElement('div');
+    chip.className = 'file-chip';
+    chip.innerHTML = `
+      <div class="name">${file.name}</div>
+      <div class="size">${fmtSize(file.size)}</div>
+      <button class="remove" data-idx="${idx}">&times;</button>
+    `;
+    fileList.appendChild(chip);
+  });
+  document.querySelectorAll('.file-chip .remove').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const idx = parseInt(btn.dataset.idx);
+      uploadedFiles.splice(idx, 1);
+      renderFileList();
+      extractBtn.disabled = uploadedFiles.length === 0;
+    });
+  });
+  extractBtn.disabled = uploadedFiles.length === 0;
+}
+
+function addFiles(fileListObj) {
+  for (const f of fileListObj) {
+    if (f.name.toLowerCase().endsWith('.pdf')) {
+      uploadedFiles.push(f);
+    }
+  }
+  renderFileList();
+}
+
+// ------------------------------------------------------------------
+// PDF text extraction using PDF.js
+// ------------------------------------------------------------------
+async function extractTextFromPDF(file) {
+  const arrayBuffer = await file.arrayBuffer();
+  const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+  let text = '';
+  for (let i = 1; i <= pdf.numPages; i++) {
+    const page = await pdf.getPage(i);
+    const content = await page.getTextContent();
+    const pageText = content.items.map(item => item.str).join('');
+    text += pageText + '\n';
+  }
+  return text;
+}
+
+function parseMetadata(text) {
+  // Try with spaces removed first (some PDF generators insert spaces)
+  const noSpace = text.replace(/\s/g, '');
+
+  const metadata = {
+    '合同编号': '',
+    '购方名称': '',
+    '销方名称': '',
+    '发票号码': '',
+    '开票日期': ''
+  };
+
+  // 发票号码
+  let m = noSpace.match(/发票号码[：:](\d+)/);
+  if (m) metadata['发票号码'] = m[1];
+
+  // 开票日期
+  m = noSpace.match(/开票日期[：:]([\d年月日]+)/);
+  if (m) metadata['开票日期'] = m[1];
+
+  // 合同编号 — be lenient about prefix chars
+  m = noSpace.match(/合同编号[：:]([^\s：:]+?)(?=开票日期|发票号码|项目名称|$)/);
+  if (m) metadata['合同编号'] = m[1].trim();
+
+  // 购方名称 — try multiple strategies
+  // Strategy 1: "购买方信息...名称：xxx...(销售方信息|地址电话)"
+  const buyerBlock1 = noSpace.match(/购买方信息.*?名称[：:]([^地址电话开户行及账号]+?)(?=地址|电话|开户行|销售方信息)/);
+  if (buyerBlock1) {
+    metadata['购方名称'] = buyerBlock1[1].trim();
+  } else {
+    // Strategy 2: "购名称：xxx" or "购方名称：xxx" before seller
+    const buyerBlock2 = noSpace.match(/(?:购买方|购方|购).*?名称[：:]([^销售方销方]{3,}?)销/);
+    if (buyerBlock2) metadata['购方名称'] = buyerBlock2[1].trim();
+  }
+
+  // 销方名称
+  const sellerBlock1 = noSpace.match(/销售方信息.*?名称[：:]([^地址电话开户行及账号]+?)(?=地址|电话|开户行|购买方信息)/);
+  if (sellerBlock1) {
+    metadata['销方名称'] = sellerBlock1[1].trim();
+  } else {
+    const sellerBlock2 = noSpace.match(/(?:销售方|销方|销).*?名称[：:]([^购买方购方]{3,}?)购/);
+    if (sellerBlock2) metadata['销方名称'] = sellerBlock2[1].trim();
+  }
+
+  return metadata;
+}
+
+// ------------------------------------------------------------------
+// Event listeners
+// ------------------------------------------------------------------
+dropzone.addEventListener('click', () => fileInput.click());
+fileInput.addEventListener('change', (e) => { addFiles(e.target.files); fileInput.value = ''; });
+dropzone.addEventListener('dragover', (e) => { e.preventDefault(); dropzone.classList.add('dragover'); });
+dropzone.addEventListener('dragleave', () => dropzone.classList.remove('dragover'));
+dropzone.addEventListener('drop', (e) => {
+  e.preventDefault();
+  dropzone.classList.remove('dragover');
+  addFiles(e.dataTransfer.files);
+});
+
+// ------------------------------------------------------------------
+// Extract
+// ------------------------------------------------------------------
+extractBtn.addEventListener('click', async () => {
+  if (uploadedFiles.length === 0) return;
+  hideError();
+  setProgress(5);
+  extractBtn.disabled = true;
+  extractedData = [];
+
+  for (let i = 0; i < uploadedFiles.length; i++) {
+    const file = uploadedFiles[i];
+    log(`正在解析 ${file.name} (${i + 1}/${uploadedFiles.length})...`);
+    setProgress(5 + (i / uploadedFiles.length) * 80);
+
+    try {
+      const text = await extractTextFromPDF(file);
+      const metadata = parseMetadata(text);
+      extractedData.push({
+        id: crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}_${i}`,
+        file: file,
+        original_name: file.name,
+        metadata: metadata
+      });
+    } catch (e) {
+      console.error(e);
+      extractedData.push({
+        id: crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}_${i}`,
+        file: file,
+        original_name: file.name,
+        metadata: { '合同编号':'', '购方名称':'', '销方名称':'', '发票号码':'', '开票日期':'' },
+        error: true
+      });
+    }
+  }
+
+  // Render table
+  metaTable.innerHTML = '';
+  extractedData.forEach((item, idx) => {
+    const m = item.metadata;
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${idx + 1}</td>
+      <td title="${item.original_name}">${item.original_name}</td>
+      <td>${m['合同编号'] || '<span class="field-empty">--</span>'}</td>
+      <td>${m['购方名称'] || '<span class="field-empty">--</span>'}</td>
+      <td>${m['销方名称'] || '<span class="field-empty">--</span>'}</td>
+      <td>${m['发票号码'] || '<span class="field-empty">--</span>'}</td>
+      <td>${m['开票日期'] || '<span class="field-empty">--</span>'}</td>
+    `;
+    metaTable.appendChild(tr);
+  });
+
+  tableCard.style.display = 'block';
+  formatCard.style.display = 'block';
+  log('');
+  updatePreview();
+  setProgress(100);
+  tableCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  extractBtn.disabled = uploadedFiles.length === 0;
+});
+
+// ------------------------------------------------------------------
+// Naming format & preview
+// ------------------------------------------------------------------
+function applyTemplate(metadata, template) {
+  let result = template;
+  for (const [key, val] of Object.entries(metadata)) {
+    result = result.replace(new RegExp('\\{' + key + '\\}', 'g'), val || '');
+  }
+  result = result.replace(/[\\/:*?"<>|]/g, '_').replace(/_+/g, '_').replace(/^[._]+|[._]+$/g, '');
+  return result || '未命名发票';
+}
+
+function updatePreview() {
+  const template = templateInput.value;
+  previewList.innerHTML = '';
+
+  extractedData.forEach(item => {
+    const newName = applyTemplate(item.metadata, template);
+    const div = document.createElement('div');
+    div.className = 'preview-item';
+    div.innerHTML = `
+      <div class="old" title="${item.original_name}">${item.original_name}</div>
+      <div class="arrow">→</div>
+      <div class="new" title="${newName}.pdf">${newName}.pdf</div>
+    `;
+    previewList.appendChild(div);
+  });
+}
+
+templateInput.addEventListener('input', updatePreview);
+presetSelect.addEventListener('change', () => {
+  if (presetSelect.value !== 'custom') {
+    templateInput.value = presetSelect.value;
+    updatePreview();
+  }
+});
+
+// ------------------------------------------------------------------
+// Download
+// ------------------------------------------------------------------
+downloadBtn.addEventListener('click', async () => {
+  if (extractedData.length === 0) return;
+  hideError();
+  setProgress(10);
+  downloadBtn.disabled = true;
+
+  try {
+    if (extractedData.length === 1) {
+      const item = extractedData[0];
+      const newName = applyTemplate(item.metadata, templateInput.value) + '.pdf';
+      const url = URL.createObjectURL(item.file);
+      downloadLink.href = url;
+      downloadLink.download = newName;
+      downloadHint.textContent = `已重命名 1 个文件：${newName}`;
+    } else {
+      const zip = new JSZip();
+      const usedNames = new Set();
+
+      for (const item of extractedData) {
+        let newName = applyTemplate(item.metadata, templateInput.value) + '.pdf';
+        let finalName = newName;
+        let counter = 1;
+        while (usedNames.has(finalName)) {
+          const base = newName.replace(/\.pdf$/, '');
+          finalName = `${base}_${counter}.pdf`;
+          counter++;
+        }
+        usedNames.add(finalName);
+        zip.file(finalName, item.file);
+      }
+
+      const blob = await zip.generateAsync({ type: 'blob' });
+      const url = URL.createObjectURL(blob);
+      downloadLink.href = url;
+      downloadLink.download = `invoices_${Date.now()}.zip`;
+      downloadHint.textContent = `已重命名 ${extractedData.length} 个文件，打包为 ZIP`;
+    }
+
+    downloadCard.style.display = 'block';
+    downloadCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    setProgress(100);
+  } catch (e) {
+    showError(e.message);
+    setProgress(0);
+  } finally {
+    downloadBtn.disabled = false;
+  }
+});
+</script>
+</body>
+</html>
