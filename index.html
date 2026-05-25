@@ -389,7 +389,9 @@ async function extractTextFromPDF(file) {
       lines.push(line);
     }
   }
-  return lines.join('\n');
+  const rawText = lines.join('\n');
+  console.log('[DEBUG] PDF.js extracted text (first 1200 chars):', rawText.slice(0, 1200));
+  return rawText;
 }
 
 function parseMetadata(text) {
@@ -483,7 +485,8 @@ extractBtn.addEventListener('click', async () => {
         id: crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}_${i}`,
         file: file,
         original_name: file.name,
-        metadata: metadata
+        metadata: metadata,
+        rawText: text
       });
     } catch (e) {
       console.error(e);
@@ -513,6 +516,32 @@ extractBtn.addEventListener('click', async () => {
     `;
     metaTable.appendChild(tr);
   });
+
+  // Show debug raw text for files with empty metadata
+  let hasEmpty = false;
+  let debugHtml = '';
+  extractedData.forEach((item, idx) => {
+    const m = item.metadata;
+    const allEmpty = !m['合同编号'] && !m['购方名称'] && !m['销方名称'] && !m['发票号码'] && !m['开票日期'];
+    if (allEmpty && item.rawText) {
+      hasEmpty = true;
+      debugHtml += `<div style="margin-bottom:12px;">
+        <b>#${idx+1} ${item.original_name}</b> 提取到的原始文本：
+        <pre style="background:#0f172a;border-radius:8px;padding:12px;overflow-x:auto;font-size:12px;margin-top:6px;">${item.rawText.slice(0, 800).replace(/</g,'&lt;')}${item.rawText.length > 800 ? '...' : ''}</pre>
+      </div>`;
+    }
+  });
+  if (hasEmpty) {
+    const warn = document.createElement('div');
+    warn.style.cssText = 'margin-top:16px;background:#451a03;color:#fdba74;padding:14px 18px;border-radius:10px;font-size:14px;';
+    warn.innerHTML = '<div style="font-weight:600;margin-bottom:8px;">⚠️ 部分文件未能提取到字段</div>' + debugHtml +
+      '<div style="margin-top:10px;color:#94a3b8;font-size:12px;">如果原始文本中有中文但字段未匹配，请把这段文本复制给我，我会调整解析规则。</div>';
+    // Remove old warning if any
+    const oldWarn = tableCard.querySelector('.debug-warn');
+    if (oldWarn) oldWarn.remove();
+    warn.className = 'debug-warn';
+    tableCard.appendChild(warn);
+  }
 
   tableCard.style.display = 'block';
   formatCard.style.display = 'block';
