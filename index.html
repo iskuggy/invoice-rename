@@ -365,19 +365,37 @@ function addFiles(fileListObj) {
 async function extractTextFromPDF(file) {
   const arrayBuffer = await file.arrayBuffer();
   const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
-  let text = '';
+  const lines = [];
   for (let i = 1; i <= pdf.numPages; i++) {
     const page = await pdf.getPage(i);
     const content = await page.getTextContent();
-    const pageText = content.items.map(item => item.str).join('');
-    text += pageText + '\n';
+    const items = content.items.filter(it => it.str && it.str.trim());
+
+    // Group by y-coordinate to reconstruct reading lines
+    const threshold = 3;
+    const groups = [];
+    for (const item of items) {
+      const y = Math.round(item.transform[5]);
+      let group = groups.find(g => Math.abs(g.y - y) <= threshold);
+      if (!group) {
+        group = { y, items: [] };
+        groups.push(group);
+      }
+      group.items.push(item);
+    }
+    groups.sort((a, b) => b.y - a.y); // top to bottom
+    for (const group of groups) {
+      group.items.sort((a, b) => a.transform[4] - b.transform[4]); // left to right
+      const line = group.items.map(it => it.str).join('');
+      lines.push(line);
+    }
   }
-  return text;
+  return lines.join('\n');
 }
 
 function parseMetadata(text) {
-  // Try with spaces removed first (some PDF generators insert spaces)
   const noSpace = text.replace(/\s/g, '');
+  console.log('[DEBUG] noSpace text (first 800 chars):', noSpace.slice(0, 800));
 
   const metadata = {
     '合同编号': '',
@@ -388,37 +406,46 @@ function parseMetadata(text) {
   };
 
   // 发票号码
-  let m = noSpace.match(/发票号码[：:](\d+)/);
+  let m = noSpace.match(/发票号码[：:](\d{10,})/);
   if (m) metadata['发票号码'] = m[1];
 
   // 开票日期
   m = noSpace.match(/开票日期[：:]([\d年月日]+)/);
   if (m) metadata['开票日期'] = m[1];
 
-  // 合同编号 — be lenient about prefix chars
-  m = noSpace.match(/合同编号[：:]([^\s：:]+?)(?=开票日期|发票号码|项目名称|$)/);
+  // 合同编号
+  m = noSpace.match(/合同编号[：:]([A-Za-z0-9\-]+)/);
+  if (!m) m = noSpace.match(/合同编号[：:]([^\s：]+)/);
   if (m) metadata['合同编号'] = m[1].trim();
 
-  // 购方名称 — try multiple strategies
-  // Strategy 1: "购买方信息...名称：xxx...(销售方信息|地址电话)"
-  const buyerBlock1 = noSpace.match(/购买方信息.*?名称[：:]([^地址电话开户行及账号]+?)(?=地址|电话|开户行|销售方信息)/);
-  if (buyerBlock1) {
-    metadata['购方名称'] = buyerBlock1[1].trim();
-  } else {
-    // Strategy 2: "购名称：xxx" or "购方名称：xxx" before seller
-    const buyerBlock2 = noSpace.match(/(?:购买方|购方|购).*?名称[：:]([^销售方销方]{3,}?)销/);
-    if (buyerBlock2) metadata['购方名称'] = buyerBlock2[1].trim();
+  // 购方名称
+  // Try several patterns in order of specificity
+  const buyerPatterns = [
+    /购买方信息.*?名称[：:]([^地址电话开户行识别号统一社会信用代码]+?)(?=地址|电话|开户行|识别号|统一社会信用代码|销售方信息)/,
+    /购方名称[：:]([^销售]{2,}?)(?=销方|销售方|$)/,
+    /购名称[：:]([^销售]{2,}?)(?=销方|销售方|$)/,
+    /购\s*名称[：:]([^销售]{2,}?)(?=销方|销售方|$)/,
+    /买\s*方.*?名称[：:]([^销售]{2,}?)(?=销方|销售方|$)/,
+  ];
+  for (const p of buyerPatterns) {
+    m = noSpace.match(p);
+    if (m) { metadata['购方名称'] = m[1].trim(); break; }
   }
 
   // 销方名称
-  const sellerBlock1 = noSpace.match(/销售方信息.*?名称[：:]([^地址电话开户行及账号]+?)(?=地址|电话|开户行|购买方信息)/);
-  if (sellerBlock1) {
-    metadata['销方名称'] = sellerBlock1[1].trim();
-  } else {
-    const sellerBlock2 = noSpace.match(/(?:销售方|销方|销).*?名称[：:]([^购买方购方]{3,}?)购/);
-    if (sellerBlock2) metadata['销方名称'] = sellerBlock2[1].trim();
+  const sellerPatterns = [
+    /销售方信息.*?名称[：:]([^地址电话开户行识别号统一社会信用代码]+?)(?=地址|电话|开户行|识别号|统一社会信用代码|购买方信息)/,
+    /销方名称[：:]([^购买]{2,}?)(?=购方|购买方|$)/,
+    /销名称[：:]([^购买]{2,}?)(?=购方|购买方|$)/,
+    /销\s*名称[：:]([^购买]{2,}?)(?=购方|购买方|$)/,
+    /卖\s*方.*?名称[：:]([^购买]{2,}?)(?=购方|购买方|$)/,
+  ];
+  for (const p of sellerPatterns) {
+    m = noSpace.match(p);
+    if (m) { metadata['销方名称'] = m[1].trim(); break; }
   }
 
+  console.log('[DEBUG] extracted metadata:', metadata);
   return metadata;
 }
 
